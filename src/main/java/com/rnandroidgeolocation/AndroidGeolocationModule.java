@@ -94,6 +94,7 @@ public class AndroidGeolocationModule extends ReactContextBaseJavaModule
                 final Status status = locationSettingsResult.getStatus();
                 switch (status.getStatusCode()) {
                     case LocationSettingsStatusCodes.SUCCESS:
+                        requestLocation();
                         break;
                     case LocationSettingsStatusCodes.RESOLUTION_REQUIRED:
                         PendingIntent in = status.getResolution();
