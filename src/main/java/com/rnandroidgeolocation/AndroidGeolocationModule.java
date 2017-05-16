@@ -1,7 +1,6 @@
 package com.rnandroidgeolocation;
 
 import android.app.Activity;
-import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.IntentSender;
 import android.location.Location;
@@ -21,17 +20,24 @@ import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.PendingResult;
 import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.common.api.Status;
+import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.LocationSettingsRequest;
 import com.google.android.gms.location.LocationSettingsResult;
+import com.google.android.gms.location.LocationSettingsStates;
 import com.google.android.gms.location.LocationSettingsStatusCodes;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
+
+import javax.annotation.Nullable;
 
 public class AndroidGeolocationModule extends ReactContextBaseJavaModule
         implements GoogleApiClient.ConnectionCallbacks,
         GoogleApiClient.OnConnectionFailedListener,
+        LocationListener,
         ActivityEventListener {
     protected static final String TAG = "GeoLocation";
     protected GoogleApiClient mGoogleApiClient;
@@ -41,11 +47,11 @@ public class AndroidGeolocationModule extends ReactContextBaseJavaModule
     private static final long UPDATE_INTERVAL_IN_MILLISECONDS = TimeUnit.MINUTES.toMillis(30);
     private static final long FASTEST_UPDATE_INTERVAL_IN_MILLISECONDS = UPDATE_INTERVAL_IN_MILLISECONDS / 2;
     private final static int CONNECTION_FAILURE_RESOLUTION_REQUEST = 9000;
-    private static final int REQUEST_CODE = 1671;
+    private static final int REQUEST_CODE = 1644;
 
-    private static final String ERROR_MSG_LOCATION = "";
-    private static final String ERROR_MSG_LOCATION_SERVICE_DISABLED = "";
-    private static final String ERROR_MSG_UNKOWN = "unknown.";
+    private static final Integer ERROR_LOCATION_CANNOT_GET = 1;
+    private static final Integer ERROR_LOCATION_SERVICE_WAS_DISABLED = 2;
+    private static final Integer ERROR_UNKNOWN = 99;
 
     private Callback mSuccessCallback, mErrorCallback;
 
@@ -57,6 +63,17 @@ public class AndroidGeolocationModule extends ReactContextBaseJavaModule
     public AndroidGeolocationModule(ReactApplicationContext reactContext) {
         super(reactContext);
         buildGoogleApiClient();
+        reactContext.addActivityEventListener(this);
+    }
+
+    @Nullable
+    @Override
+    public Map<String, Object> getConstants() {
+        final Map<String, Object> constants = new HashMap<>();
+        constants.put("ERROR_LOCATION_CANNOT_GET", ERROR_LOCATION_CANNOT_GET);
+        constants.put("ERROR_LOCATION_SERVICE_DISABLED", ERROR_LOCATION_SERVICE_WAS_DISABLED);
+        constants.put("ERROR_UNKNOWN", ERROR_UNKNOWN);
+        return constants;
     }
 
     protected synchronized void buildGoogleApiClient() {
@@ -81,13 +98,13 @@ public class AndroidGeolocationModule extends ReactContextBaseJavaModule
     }
 
     @ReactMethod
-    public void getCurrentLocation(Callback success, Callback error) {
+    public void getCurrentLocation(Callback success, final Callback error) {
         this.mSuccessCallback = success;
         this.mErrorCallback = error;
-        LocationSettingsRequest locationSettingRequest = new LocationSettingsRequest.Builder()
+        final LocationSettingsRequest locationSettingRequest = new LocationSettingsRequest.Builder()
                 .addLocationRequest(getLocationRequest())
                 .build();
-        PendingResult<LocationSettingsResult> result = LocationServices.SettingsApi.checkLocationSettings(mGoogleApiClient, locationSettingRequest);
+        final PendingResult<LocationSettingsResult> result = LocationServices.SettingsApi.checkLocationSettings(mGoogleApiClient, locationSettingRequest);
         result.setResultCallback(new ResultCallback<LocationSettingsResult>() {
             @Override
             public void onResult(@NonNull LocationSettingsResult locationSettingsResult) {
@@ -97,28 +114,25 @@ public class AndroidGeolocationModule extends ReactContextBaseJavaModule
                         requestLocation();
                         break;
                     case LocationSettingsStatusCodes.RESOLUTION_REQUIRED:
-                        PendingIntent in = status.getResolution();
                         try {
                             status.startResolutionForResult(getCurrentActivity(), REQUEST_CODE);
                         } catch (IntentSender.SendIntentException e) {
-                            // TODO LOG
+                            // ignore the error.
                         }
                         break;
                     case LocationSettingsStatusCodes.SETTINGS_CHANGE_UNAVAILABLE:
-                        Log.i("TAG", "== SETTINGS_CHANGE_UNAVAILABLE " + status);
-                        break;
+                    default:
+                        error.invoke(ERROR_UNKNOWN);
                 }
             }
         });
     }
 
     private void requestLocation() {
-        WritableMap location = Arguments.createMap();
-        WritableMap coords = Arguments.createMap();
-        String errorMessage = "Location could not be retrieved";
         mLastLocation = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
         if (mLastLocation != null) {
-            // If a location is returned, will invoke success callback with the locatation using a Javascript object
+            WritableMap location = Arguments.createMap();
+            WritableMap coords = Arguments.createMap();
             coords.putDouble("latitude", mLastLocation.getLatitude());
             coords.putDouble("longitude", mLastLocation.getLongitude());
             location.putMap("coords", coords);
@@ -126,10 +140,7 @@ public class AndroidGeolocationModule extends ReactContextBaseJavaModule
                 mSuccessCallback.invoke(location);
             }
         } else {
-            // Else, the error callback is invoked with an error message
-            if (mErrorCallback != null) {
-                mErrorCallback.invoke(errorMessage);
-            }
+            LocationServices.FusedLocationApi.requestLocationUpdates(mGoogleApiClient, mLocationRequest, this);
         }
     }
 
@@ -157,17 +168,30 @@ public class AndroidGeolocationModule extends ReactContextBaseJavaModule
         if (requestCode != REQUEST_CODE) {
             return;
         }
-        if (resultCode == Activity.RESULT_OK) {
-            requestLocation();
-        } else if (resultCode == Activity.RESULT_CANCELED) {
-            mErrorCallback.invoke(ERROR_MSG_LOCATION_SERVICE_DISABLED);
-        } else {
-            mErrorCallback.invoke(ERROR_MSG_UNKOWN);
+        final LocationSettingsStates states = LocationSettingsStates.fromIntent(data);
+        switch (resultCode) {
+            case Activity.RESULT_OK:
+                requestLocation();
+                break;
+            case Activity.RESULT_CANCELED:
+                mErrorCallback.invoke(ERROR_LOCATION_SERVICE_WAS_DISABLED);
+                break;
+            default:
+                mErrorCallback.invoke(ERROR_UNKNOWN);
+                break;
         }
     }
 
     @Override
     public void onNewIntent(Intent intent) {
         // do nothing.
+    }
+
+    @Override
+    public void onLocationChanged(Location location) {
+        if (mLastLocation == null) {
+            mLastLocation = location;
+        }
+        requestLocation();
     }
 }
