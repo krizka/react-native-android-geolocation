@@ -135,6 +135,7 @@ public class AndroidGeolocationModule extends ReactContextBaseJavaModule
             WritableMap coords = Arguments.createMap();
             coords.putDouble("latitude", mLastLocation.getLatitude());
             coords.putDouble("longitude", mLastLocation.getLongitude());
+            coords.putDouble("heading", mLastLocation.getBearing());
             location.putMap("coords", coords);
             if (mSuccessCallback != null) {
                 mSuccessCallback.invoke(location);
