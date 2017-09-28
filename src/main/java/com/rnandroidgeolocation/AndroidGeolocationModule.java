@@ -137,7 +137,8 @@ public class AndroidGeolocationModule extends ReactContextBaseJavaModule
 
     @ReactMethod
     public void clearWatch() {
-        LocationServices.FusedLocationApi.removeLocationUpdates(mGoogleApiClient, this);
+        if (mGoogleApiClient.isConnected())
+            LocationServices.FusedLocationApi.removeLocationUpdates(mGoogleApiClient, this);
     }
 
     @ReactMethod
@@ -161,6 +162,8 @@ public class AndroidGeolocationModule extends ReactContextBaseJavaModule
                         try {
                             status.startResolutionForResult(getCurrentActivity(), REQUEST_CODE);
                         } catch (IntentSender.SendIntentException e) {
+                            // ignore the error.
+                        } catch (NullPointerException e) {
                             // ignore the error.
                         }
                         break;
