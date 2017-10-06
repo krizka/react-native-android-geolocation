@@ -160,10 +160,10 @@ public class AndroidGeolocationModule extends ReactContextBaseJavaModule
                         break;
                     case LocationSettingsStatusCodes.RESOLUTION_REQUIRED:
                         try {
-                            status.startResolutionForResult(getCurrentActivity(), REQUEST_CODE);
+                            Activity activity = getCurrentActivity();
+                            if (activity != null)
+                                status.startResolutionForResult(getCurrentActivity(), REQUEST_CODE);
                         } catch (IntentSender.SendIntentException e) {
-                            // ignore the error.
-                        } catch (NullPointerException e) {
                             // ignore the error.
                         }
                         break;
